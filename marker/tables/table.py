@@ -31,28 +31,30 @@ def get_table_boxes(pages: List[Page], doc: PdfDocument, fname):
     table_counts = []
     table_bboxes = []
     img_sizes = []
+    pnums = []
 
-    for page in pages:
-        pnum = page.pnum
+    for page_idx, page in enumerate(pages):
         # The bbox for the entire table
         bbox = [b.bbox for b in page.layout.bboxes if b.label == "Table"]
-
-        if len(bbox) == 0:
-            table_counts.append(0)
-            img_sizes.append(None)
-            continue
-
-        highres_img = render_image(doc[pnum], dpi=settings.SURYA_TABLE_DPI)
+        highres_img = render_image(doc[page_idx], dpi=settings.SURYA_TABLE_DPI)
 
         page_table_imgs = []
         page_bboxes = []
 
         # Merge tables that are next to each other
         bbox = merge_tables(bbox)
+        bbox = list(filter(lambda b: b[3] - b[1] > 10 and b[2] - b[0] > 10, bbox))
+
+        if len(bbox) == 0:
+            table_counts.append(0)
+            img_sizes.append(None)
+            pnums.append(page.pnum)
+            continue
 
         # Number of tables per page
         table_counts.append(len(bbox))
         img_sizes.append(highres_img.size)
+        pnums.append(page.pnum)
 
         for bb in bbox:
             highres_bb = rescale_bbox(page.layout.image_bbox, [0, 0, highres_img.size[0], highres_img.size[1]], bb)
@@ -62,10 +64,14 @@ def get_table_boxes(pages: List[Page], doc: PdfDocument, fname):
         table_imgs.extend(page_table_imgs)
         table_bboxes.extend(page_bboxes)
 
-    table_idxs = [i for i, c in enumerate(table_counts) if c > 0]
+    # The page number in doc and in the original document are not the same
+    # Doc has had pages removed from the start to align to start_page
+    # This corrects for that
+    doc_idxs = [pnum for pnum, tc in zip(pnums, table_counts) if tc > 0]
+    table_idxs = [i for i, tc in enumerate(table_counts) if tc > 0]
     sel_text_lines = get_page_text_lines(
         fname,
-        table_idxs,
+        doc_idxs,
         [hr for i, hr in enumerate(img_sizes) if i in table_idxs],
     )
     text_lines = []
